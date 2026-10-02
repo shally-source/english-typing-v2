@@ -532,57 +532,41 @@ function renderText() {
     const textContent = document.createElement('div');
     textContent.className = 'text-content';
 
-    const lines = state.targetText.split('\n');
-    let index = 0;
+    const targetLine = document.createElement('div');
+    targetLine.className = 'target-text-line line-block';
+    targetLine.style.cssText = 'display: block; font-size: 24px; font-weight: bold; color: #333; margin-bottom: 12px; letter-spacing: 1px; min-height: 36px; white-space: pre-wrap;';
 
-    lines.forEach((lineText, lineIdx) => {
-        const lineDiv = document.createElement('div');
-        lineDiv.className = 'line-block';
+    const inputLine = document.createElement('div');
+    inputLine.className = 'input-text-line';
+    inputLine.style.cssText = 'display: block; clear: both; margin-top: 12px; box-sizing: border-box; font-size: 24px; font-weight: bold; color: #2563eb; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 2px dashed #93c5fd; min-height: 48px; word-break: break-all;';
 
-        let currentWord = [];
-        let i = 0;
+    for (let i = 0; i < state.targetText.length; i++) {
+        const char = state.targetText[i];
+        const span = document.createElement('span');
+        span.textContent = char === '\n' ? '↵\n' : char;
 
-        function flushWord() {
-            if (currentWord.length > 0) {
-                const wordSpan = document.createElement('span');
-                wordSpan.className = 'word-span';
-                currentWord.forEach(charData => {
-                    const span = createCharSpan(charData.char, charData.index, false);
-                    wordSpan.appendChild(span);
-                });
-                lineDiv.appendChild(wordSpan);
-                currentWord = [];
+        if (i < state.userInput.length) {
+            const isCorrect = state.userInput[i] === char;
+            span.style.color = isCorrect ? '#10b981' : '#ef4444';
+
+            if (!isCorrect) {
+                span.style.textDecoration = 'underline';
             }
+        } else if (i === state.userInput.length) {
+            span.className = 'current';
+            span.style.background = '#fef08a';
+            span.style.borderRadius = '3px';
         }
 
-        while (i < lineText.length) {
-            const char = lineText[i];
+        targetLine.appendChild(span);
+    }
 
-            if (char === ' ') {
-                flushWord();
-                const spaceSpan = createCharSpan(' ', index, false);
-                lineDiv.appendChild(spaceSpan);
-                index++;
-                i++;
-            } else {
-                currentWord.push({ char, index });
-                index++;
-                i++;
-            }
-        }
-        flushWord();
+    inputLine.textContent = state.userInput || '（請在此處開始打字...）';
 
-        if (lineIdx < lines.length - 1) {
-            const newlineSpan = createCharSpan('\n', index, true);
-            lineDiv.appendChild(newlineSpan);
-            index++;
-        }
-
-        textContent.appendChild(lineDiv);
-    });
-
+    textContent.appendChild(targetLine);
+    textContent.appendChild(inputLine);
     dom.textDisplay.appendChild(textContent);
-    dom.progressBar = document.getElementById('progressBar');
+    dom.progressBar = progressBar;
 
     requestAnimationFrame(() => scrollToCurrentChar());
 }
