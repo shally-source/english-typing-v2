@@ -532,39 +532,74 @@ function renderText() {
     const textContent = document.createElement('div');
     textContent.className = 'text-content';
 
-    const targetLine = document.createElement('div');
-    targetLine.className = 'target-text-line line-block';
-    targetLine.style.cssText = 'display: block; font-size: 24px; font-weight: bold; color: #333; margin-bottom: 12px; letter-spacing: 1px; min-height: 36px; white-space: pre-wrap;';
+    const lines = state.targetText.split('\n');
+    let lineStart = 0;
 
-    const inputLine = document.createElement('div');
-    inputLine.className = 'input-text-line';
-    inputLine.style.cssText = 'display: block; clear: both; margin-top: 12px; box-sizing: border-box; font-size: 24px; font-weight: bold; color: #2563eb; background: #f1f5f9; padding: 8px 12px; border-radius: 8px; border: 2px dashed #93c5fd; min-height: 48px; word-break: break-all;';
+    lines.forEach((line, lineIndex) => {
+        const hasNewline = lineIndex < lines.length - 1;
+        const lineEnd = lineStart + line.length;
+        const lineInputEnd = lineEnd + (hasNewline ? 1 : 0);
+        const lineContainer = document.createElement('div');
+        lineContainer.className = 'line-container line-block';
+        lineContainer.style.cssText = 'display: block; width: 100%; margin-bottom: 16px;';
 
-    for (let i = 0; i < state.targetText.length; i++) {
-        const char = state.targetText[i];
-        const span = document.createElement('span');
-        span.textContent = char === '\n' ? '↵\n' : char;
+        const targetLine = document.createElement('div');
+        targetLine.className = 'target-line';
+        targetLine.style.cssText = 'display: block; width: 100%; font-size: 24px; font-weight: bold; color: #333; margin-bottom: 8px; letter-spacing: 1px; min-height: 36px; line-height: 1.5; white-space: pre-wrap;';
 
-        if (i < state.userInput.length) {
-            const isCorrect = state.userInput[i] === char;
-            span.style.color = isCorrect ? '#10b981' : '#ef4444';
+        const inputLine = document.createElement('div');
+        inputLine.className = 'user-input-line';
+        inputLine.style.cssText = 'display: block; clear: both; width: 100%; box-sizing: border-box; font-size: 24px; font-weight: bold; color: #2563eb; background: #eff6ff; padding: 8px 12px; border: 2px solid #93c5fd; border-radius: 8px; min-height: 48px; line-height: 1.5; word-break: break-all; white-space: pre-wrap;';
 
-            if (!isCorrect) {
-                span.style.textDecoration = 'underline';
+        for (let charIndex = 0; charIndex < line.length; charIndex++) {
+            const targetIndex = lineStart + charIndex;
+            const char = line[charIndex];
+            const span = document.createElement('span');
+            span.textContent = char;
+
+            if (targetIndex < state.userInput.length) {
+                const isCorrect = state.userInput[targetIndex] === char;
+                span.style.color = isCorrect ? '#10b981' : '#ef4444';
+                if (!isCorrect) span.style.textDecoration = 'underline';
+            } else if (targetIndex === state.userInput.length) {
+                span.className = 'current';
+                span.style.background = '#fef08a';
+                span.style.borderRadius = '3px';
             }
-        } else if (i === state.userInput.length) {
-            span.className = 'current';
-            span.style.background = '#fef08a';
-            span.style.borderRadius = '3px';
+
+            targetLine.appendChild(span);
         }
 
-        targetLine.appendChild(span);
-    }
+        if (hasNewline) {
+            const newlineIndex = lineEnd;
+            const newlineMarker = document.createElement('span');
+            newlineMarker.textContent = '↵';
+            newlineMarker.style.color = newlineIndex < state.userInput.length
+                ? (state.userInput[newlineIndex] === '\n' ? '#10b981' : '#ef4444')
+                : '#94a3b8';
 
-    inputLine.textContent = state.userInput || '（請在此處開始打字...）';
+            if (newlineIndex < state.userInput.length && state.userInput[newlineIndex] !== '\n') {
+                newlineMarker.style.textDecoration = 'underline';
+            } else if (newlineIndex === state.userInput.length) {
+                newlineMarker.className = 'current';
+                newlineMarker.style.background = '#fef08a';
+                newlineMarker.style.borderRadius = '3px';
+            }
 
-    textContent.appendChild(targetLine);
-    textContent.appendChild(inputLine);
+            targetLine.appendChild(newlineMarker);
+        }
+
+        const lineInput = state.userInput
+            .slice(lineStart, Math.min(lineInputEnd, state.userInput.length))
+            .replace(/\n/g, '↵');
+        inputLine.textContent = lineInput || '（請在此處打字...）';
+
+        lineContainer.appendChild(targetLine);
+        lineContainer.appendChild(inputLine);
+        textContent.appendChild(lineContainer);
+        lineStart = lineInputEnd;
+    });
+
     dom.textDisplay.appendChild(textContent);
     dom.progressBar = progressBar;
 
