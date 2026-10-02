@@ -549,7 +549,7 @@ function renderText() {
 
         const inputLine = document.createElement('div');
         inputLine.className = 'user-input-line';
-        inputLine.style.cssText = 'display: block; clear: both; width: 100%; box-sizing: border-box; font-size: 24px; font-weight: bold; color: #2563eb; background: #eff6ff; padding: 8px 12px; border: 2px solid #93c5fd; border-radius: 8px; min-height: 48px; line-height: 1.5; word-break: break-all; white-space: pre-wrap;';
+        inputLine.style.cssText = 'display: block; clear: both; width: 100%; box-sizing: border-box; margin-top: 4px; font-size: 24px; font-weight: bold; color: #2563eb; background: #eff6ff; padding: 8px; border: 2px solid #93c5fd; border-radius: 6px; min-height: 48px; line-height: 1.5; word-break: break-all; white-space: pre-wrap;';
 
         for (let charIndex = 0; charIndex < line.length; charIndex++) {
             const targetIndex = lineStart + charIndex;
@@ -1211,95 +1211,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ============================================
-// 監測非英文/中文輸入法警告功能 (狀態強制還原零扣分版)
-// ============================================
-(function() {
-    let isWarningShown = false;
-    let snapshotState = null;
-
-    // 拍下輸入前的正確狀態快照
-    function takeSnapshot() {
-        if (typeof state !== 'undefined' && state) {
-            snapshotState = {
-                currentIndex: state.currentIndex,
-                errors: state.errors,
-                correctKeys: state.correctKeys,
-                totalKeysPressed: state.totalKeysPressed,
-                typedText: state.typedText
-            };
-        }
-    }
-
-    // 將遊戲狀態強制還原回輸入前
-    function restoreSnapshot() {
-        if (typeof state !== 'undefined' && state && snapshotState) {
-            state.currentIndex = snapshotState.currentIndex;
-            state.errors = snapshotState.errors;
-            state.correctKeys = snapshotState.correctKeys;
-            state.totalKeysPressed = snapshotState.totalKeysPressed;
-            state.typedText = snapshotState.typedText;
-
-            // 強制重新渲染遊戲畫面，擦除錯字與錯誤紅字
-            if (typeof renderText === 'function') renderText();
-            if (typeof updateStats === 'function') updateStats();
-            if (typeof updateHint === 'function') updateHint();
-        }
-    }
-
-    function handleChineseInput(e) {
-        // 1. 儘可能阻止預設行為
-        if (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        }
-
-        // 2. 延遲 10 毫秒執行還原，確保在原生遊戲程式「計錯」之後，將資料強制改回正確值
-        setTimeout(() => {
-            restoreSnapshot();
-        }, 10);
-
-        // 3. 彈出警告
-        if (!isWarningShown) {
-            isWarningShown = true;
-            alert('⚠️ 偵測到中文輸入法！\n請先切換至「英文輸入法」(按下 Shift 或 Caps Lock) 再開始打字喔！');
-            
-            setTimeout(() => {
-                restoreSnapshot(); // 彈窗關閉後再次確保還原
-                isWarningShown = false;
-                
-                // 清空隱藏輸入框
-                const hiddenInput = dom?.hiddenInput || document.getElementById('hiddenInput') || document.querySelector('input');
-                if (hiddenInput) {
-                    hiddenInput.value = '';
-                    hiddenInput.focus();
-                }
-            }, 100);
-        }
-        return false;
-    }
-
-    // A. 隨時持續記錄最新的合法輸入狀態
-    window.addEventListener('keydown', (e) => {
-        // 如果目前是正常的英文輸入，記錄狀態快照
-        if (!e.isComposing && e.keyCode !== 229) {
-            takeSnapshot();
-        } else {
-            // 若發現是中文 IME 按鍵，立即還原並跳警告
-            handleChineseInput(e);
-        }
-    }, true);
-
-    // B. 偵測 IME 組字開始 (中文輸入法按下第一個鍵時)
-    window.addEventListener('compositionstart', (e) => {
-        handleChineseInput(e);
-    }, true);
-
-    // C. 防禦 input 事件中的中文字符
-    window.addEventListener('input', (e) => {
-        if (e.isComposing || (e.target && /[^\x00-\x7F]/.test(e.target.value))) {
-            handleChineseInput(e);
-        }
-    }, true);
-})();
