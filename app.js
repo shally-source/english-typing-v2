@@ -1518,44 +1518,34 @@ function setupEventListeners() {
     const isInsideTeacherModal = target =>
         target instanceof Element && target.closest('#teacherModal') !== null;
 
-    window.addEventListener('paste', event => {
-        event.preventDefault();
-        event.stopPropagation();
-    }, true);
-
-    window.addEventListener('copy', event => {
-        if (isInsideTeacherModal(event.target)) return;
-        event.preventDefault();
-        event.stopPropagation();
-    }, true);
-
-    window.addEventListener('cut', event => {
-        if (isInsideTeacherModal(event.target)) return;
-        event.preventDefault();
-        event.stopPropagation();
-    }, true);
-
-    window.addEventListener('contextmenu', event => {
-        if (isInsideTeacherModal(event.target)) return;
-        event.preventDefault();
-    }, true);
-
-    window.addEventListener('dragstart', event => {
-        if (isInsideTeacherModal(event.target)) return;
-        event.preventDefault();
-    }, true);
-
-    window.addEventListener('selectstart', event => {
-        if (isInsideTeacherModal(event.target)) return;
-        event.preventDefault();
-    }, true);
-
-    window.addEventListener('keydown', event => {
-        const key = event.key.toLowerCase();
-        if ((event.ctrlKey || event.metaKey) && (key === 'v' || key === 'c') &&
-            !isInsideTeacherModal(event.target)) {
+    ['paste', 'drop'].forEach(eventType => {
+        window.addEventListener(eventType, event => {
+            if (isInsideTeacherModal(event.target)) return;
             event.preventDefault();
             event.stopPropagation();
+            if (dom.hiddenInput) dom.hiddenInput.value = '';
+        }, true);
+    });
+
+    ['copy', 'cut', 'contextmenu', 'dragstart', 'selectstart'].forEach(eventType => {
+        window.addEventListener(eventType, event => {
+            if (isInsideTeacherModal(event.target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+        }, true);
+    });
+
+    window.addEventListener('keydown', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        const key = event.key.toLowerCase();
+        const isClipboardKey = (event.ctrlKey || event.metaKey) &&
+            ['c', 'v', 'x', 'a', 'insert'].includes(key);
+        const isShiftInsert = event.shiftKey && event.key === 'Insert';
+
+        if (isClipboardKey || isShiftInsert) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (dom.hiddenInput) dom.hiddenInput.value = '';
         }
     }, true);
 
@@ -1693,25 +1683,6 @@ function setupEventListeners() {
             setTimeout(() => keyEl.classList.remove('pressed'), 100);
         }
 
-        const isEditableTarget = e.target instanceof HTMLElement &&
-            e.target !== dom.hiddenInput &&
-            (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName));
-        const isCopyShortcut = (e.ctrlKey || e.metaKey) &&
-            ['c', 'v', 'x'].includes(e.key.toLowerCase());
-        const isClipboardInsertShortcut =
-            (e.ctrlKey && e.key === 'Insert') ||
-            (e.shiftKey && e.key === 'Insert');
-        const gameModalIsOpen = !dom.articleModal.classList.contains('hidden') ||
-            !dom.resultModal.classList.contains('hidden') ||
-            !dom.loginModal.classList.contains('hidden') ||
-            !dom.teacherModal.classList.contains('hidden');
-
-        if (!isEditableTarget && !gameModalIsOpen && state.student.name &&
-            (isCopyShortcut || isClipboardInsertShortcut)) {
-            e.preventDefault();
-            return;
-        }
-
         if (!dom.articleModal.classList.contains('hidden') ||
             !dom.resultModal.classList.contains('hidden') ||
             !dom.loginModal.classList.contains('hidden') ||
@@ -1760,14 +1731,25 @@ function setupEventListeners() {
     dom.hiddenInput.addEventListener('input', (e) => {
         if (dom.hiddenInput.dataset.blocked === 'true') return;
 
-        if (e.inputType === 'insertFromPaste') {
+        if (e.inputType === 'insertFromPaste' || e.inputType === 'insertReplacementText') {
             dom.hiddenInput.value = '';
             return;
         }
 
         if (e.data) {
-            for (const ch of e.data) {
-                if (ch) handleInput(ch);
+            if (e.data.length > 1) {
+                console.warn('偵測到批次文字輸入，已強制攔截！');
+                dom.hiddenInput.value = '';
+                return;
+            }
+            handleInput(e.data);
+        } else if (dom.hiddenInput.value) {
+            if (dom.hiddenInput.value.length === 1) {
+                handleInput(dom.hiddenInput.value);
+            } else {
+                console.warn('偵測到批次文字輸入，已強制攔截！');
+                dom.hiddenInput.value = '';
+                return;
             }
         }
         dom.hiddenInput.value = '';
@@ -1775,19 +1757,6 @@ function setupEventListeners() {
         if (state.userInput.length >= state.targetText.length && state.gameActive) {
             endGame();
         }
-    });
-
-    dom.hiddenInput.addEventListener('paste', (e) => {
-        e.preventDefault();
-        dom.hiddenInput.value = '';
-    });
-
-    dom.textDisplay.addEventListener('copy', (e) => {
-        e.preventDefault();
-    });
-
-    dom.textDisplay.addEventListener('cut', (e) => {
-        e.preventDefault();
     });
 
     dom.restartBtn.addEventListener('click', () => {
