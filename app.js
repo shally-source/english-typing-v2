@@ -68,8 +68,10 @@ const dom = {
     targetGroupSelect: document.getElementById('targetGroupSelect'),
     customTargetGroupWrap: document.getElementById('customTargetGroupWrap'),
     customTargetGroup: document.getElementById('customTargetGroup'),
-    articleTargetPreview: document.getElementById('articleTargetPreview'),
-    deleteArticleBtn: document.getElementById('deleteArticleBtn'),
+    cloudArticlesListContainer: document.getElementById('cloudArticlesListContainer'),
+    cloudArticlesStatus: document.getElementById('cloudArticlesStatus'),
+    refreshCloudArticlesBtn: document.getElementById('refreshCloudArticlesBtn'),
+    teacherArticleForm: document.getElementById('teacherArticleForm'),
     teacherArticleTitle: document.getElementById('teacherArticleTitle'),
     teacherArticleFile: document.getElementById('teacherArticleFile'),
     teacherArticleContent: document.getElementById('teacherArticleContent'),
@@ -194,9 +196,10 @@ async function fetchCloudArticles() {
             throw new Error('雲端預設文章格式不正確');
         }
         cloudArticles = data.articles;
+        return true;
     } catch (error) {
         console.error('雲端預設文章載入失敗，將使用預設文章:', error);
-        cloudArticles = {};
+        return false;
     }
 }
 
@@ -462,14 +465,42 @@ function handleLogout() {
 // ============================================
 // Article Selection
 // ============================================
+function getCombinedArticles() {
+    const classGroup = getStudentClassGroup(state.student).toUpperCase();
+    const grade = String(state.student.grade || '').trim().toUpperCase();
+    const studentId = String(state.student.id || '').trim().toUpperCase();
+    const cloud = Object.entries(cloudArticles).map(([targetGroup, value]) => {
+        const group = String(targetGroup).trim().toUpperCase();
+        const content = typeof value === 'string' ? value : String(value && value.content || '');
+        const isAssigned = group === 'ALL' || group === classGroup || group === grade || group === studentId;
+        const category = isAssigned
+            ? `🌟 老師指定 (${group})`
+            : `☁️ 雲端文章 (${group})`;
+        return {
+            id: `cloud:${encodeURIComponent(targetGroup)}`,
+            targetGroup,
+            title: typeof value === 'object' && value ? String(value.title || `雲端文章 ${group}`) : `雲端文章 ${group}`,
+            content,
+            description: isAssigned ? '老師為您指定的練習文章' : '雲端派發的練習文章',
+            category,
+            isCloudArticle: true,
+            isTeacherAssigned: isAssigned
+        };
+    }).filter(article => article.content);
+
+    return cloud.concat(ARTICLES);
+}
+
 function renderArticleModal() {
-    dom.articleGrid.innerHTML = ARTICLES.map(article => {
-        const catClass = article.category === 'P2' ? 'p2' : 'p3plus';
+    dom.articleGrid.innerHTML = getCombinedArticles().map(article => {
+        const catClass = article.isCloudArticle
+            ? `cloud-article${article.isTeacherAssigned ? ' teacher-assigned' : ''}`
+            : (article.category === 'P2' ? 'p2' : 'p3plus');
         return `
-            <div class="article-card ${catClass}" data-id="${article.id}">
-                <div class="article-card-category">${article.category}</div>
-                <div class="article-card-title">${article.title}</div>
-                <div class="article-card-desc">${article.description}</div>
+            <div class="article-card ${catClass}" data-id="${escapeHtml(article.id)}">
+                <div class="article-card-category">${escapeHtml(article.category)}</div>
+                <div class="article-card-title">${escapeHtml(article.title)}</div>
+                <div class="article-card-desc">${escapeHtml(article.description || '')}</div>
                 <div class="article-card-chars">${article.content.length} 字</div>
             </div>
         `;
@@ -487,8 +518,19 @@ function openArticleModal() {
 }
 
 function selectArticle(articleId) {
-    const article = ARTICLES.find(a => a.id === articleId);
-    if (!article) return;
+    let article;
+    if (String(articleId).startsWith('cloud:')) {
+        const targetGroup = decodeURIComponent(String(articleId).slice('cloud:'.length));
+        const cloudArticle = cloudArticles[targetGroup];
+        if (cloudArticle) {
+            article = {
+                content: typeof cloudArticle === 'string' ? cloudArticle : cloudArticle.content
+            };
+        }
+    } else {
+        article = ARTICLES.find(a => a.id === articleId);
+    }
+    if (!article || !article.content) return;
 
     state.targetText = article.content;
     state.userInput = '';
@@ -1277,7 +1319,10 @@ async function saveTeacherArticle() {
             body: JSON.stringify(payload)
         });
         cloudArticles[targetGroup] = { title, content, updatedAt: new Date().toLocaleString() };
-        updateArticleTargetPreview();
+        dom.teacherArticleTitle.value = '';
+        dom.teacherArticleContent.value = '';
+        renderCloudArticlesList();
+        refreshOpenArticleModal();
         alert('✅ 已成功派發預設文章！');
     } catch (error) {
         console.error('預設文章派發失敗:', error);
@@ -1287,40 +1332,74 @@ async function saveTeacherArticle() {
     }
 }
 
-function getSelectedArticleTarget() {
-    return dom.targetGroupSelect.value === 'CUSTOM'
-        ? dom.customTargetGroup.value.trim().toUpperCase()
-        : dom.targetGroupSelect.value;
+function getCloudArticleContent(article) {
+    return typeof article === 'string' ? article : String(article && article.content || '');
 }
 
-function updateArticleTargetPreview() {
-    const targetGroup = getSelectedArticleTarget();
-    const article = targetGroup ? cloudArticles[targetGroup] : null;
-    if (!article) {
-        dom.articleTargetPreview.textContent = '（目前該對象無雲端預設文章）';
-        dom.deleteArticleBtn.disabled = true;
+function getCloudArticleUpdatedAt(article) {
+    if (!article || typeof article !== 'object') return '';
+    return String(article.updatedAt || article.updated_at || article.lastUpdated ||
+        article.last_updated || article.timestamp || article.updated || '');
+}
+
+function renderCloudArticlesList(statusMessage) {
+    const entries = Object.entries(cloudArticles);
+    if (statusMessage) dom.cloudArticlesStatus.textContent = statusMessage;
+    else dom.cloudArticlesStatus.textContent = entries.length ? `共 ${entries.length} 篇雲端預設文章` : '';
+
+    if (entries.length === 0) {
+        dom.cloudArticlesListContainer.innerHTML = '<div class="cloud-article-empty">目前尚無派發任何雲端預設文章</div>';
         return;
     }
 
-    const title = typeof article === 'string' ? '' : String(article.title || '未命名文章');
-    const updatedAt = typeof article === 'object'
-        ? (article.updatedAt || article.updated_at || article.lastUpdated || article.last_updated || article.timestamp || article.updated || '')
-        : '';
-    dom.articleTargetPreview.textContent = `目前文章：${title || '未命名文章'}${updatedAt ? `｜最後更新：${updatedAt}` : ''}`;
-    dom.deleteArticleBtn.disabled = false;
+    dom.cloudArticlesListContainer.innerHTML = entries.map(([targetGroup, article]) => {
+        const content = getCloudArticleContent(article);
+        const preview = content.replace(/\s+/g, ' ').trim();
+        const shortPreview = preview.length > 40 ? `${preview.slice(0, 40)}…` : preview;
+        const title = typeof article === 'object' && article
+            ? String(article.title || '未命名文章')
+            : '未命名文章';
+        const updatedAt = getCloudArticleUpdatedAt(article) || '未提供';
+        return `
+            <article class="cloud-article-item">
+                <span class="cloud-article-target">${escapeHtml(targetGroup)}</span>
+                <div class="cloud-article-main">
+                    <div class="cloud-article-title">${escapeHtml(title)}</div>
+                    <div class="cloud-article-preview">${content.length} 字｜${escapeHtml(shortPreview)}</div>
+                </div>
+                <div class="cloud-article-updated">最後更新：${escapeHtml(updatedAt)}</div>
+                <div class="cloud-article-actions">
+                    <button type="button" data-action="edit" data-target="${escapeHtml(targetGroup)}">✏️ 編輯</button>
+                    <button type="button" class="cloud-article-delete" data-action="delete" data-target="${escapeHtml(targetGroup)}">🗑️ 刪除</button>
+                </div>
+            </article>
+        `;
+    }).join('');
 }
 
-async function deleteTeacherArticle() {
+function refreshOpenArticleModal() {
+    if (!dom.articleModal.classList.contains('hidden')) renderArticleModal();
+}
+
+async function refreshCloudArticlesList() {
+    dom.refreshCloudArticlesBtn.disabled = true;
+    renderCloudArticlesList('正在重新整理雲端文章…');
+    const loaded = await fetchCloudArticles();
+    renderCloudArticlesList(loaded
+        ? ''
+        : '❌ 重新整理失敗，保留目前文章列表；請稍後再試。');
+    refreshOpenArticleModal();
+    dom.refreshCloudArticlesBtn.disabled = false;
+}
+
+async function deleteCloudArticle(targetGroup) {
     if (state.student.isTeacher !== true) return;
-    const targetGroup = getSelectedArticleTarget();
     if (!targetGroup) {
-        alert('請輸入有效的班級代碼。');
         return;
     }
     if (!confirm('確定要刪除該對象的預設文章嗎？')) return;
 
     const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
-    dom.deleteArticleBtn.disabled = true;
     try {
         await fetch(configObj.SCRIPT_URL, {
             method: 'POST',
@@ -1332,15 +1411,34 @@ async function deleteTeacherArticle() {
             })
         });
         delete cloudArticles[targetGroup];
-        updateArticleTargetPreview();
-        dom.teacherArticleTitle.value = '';
-        dom.teacherArticleContent.value = '';
+        renderCloudArticlesList();
+        refreshOpenArticleModal();
         alert('🗑️ 已成功刪除該對象的預設文章！');
     } catch (error) {
         console.error('預設文章刪除失敗:', error);
         alert(`❌ 刪除失敗：${error.message}`);
-        updateArticleTargetPreview();
     }
+}
+
+function editCloudArticle(targetGroup) {
+    const article = cloudArticles[targetGroup];
+    if (!article) return;
+
+    if (/^(ALL|P[1-6])$/i.test(targetGroup)) {
+        dom.targetGroupSelect.value = targetGroup.toUpperCase();
+        dom.customTargetGroup.value = '';
+        dom.customTargetGroupWrap.classList.add('hidden');
+    } else {
+        dom.targetGroupSelect.value = 'CUSTOM';
+        dom.customTargetGroup.value = targetGroup;
+        dom.customTargetGroupWrap.classList.remove('hidden');
+    }
+    dom.teacherArticleTitle.value = typeof article === 'object' && article
+        ? String(article.title || '')
+        : '';
+    dom.teacherArticleContent.value = getCloudArticleContent(article);
+    dom.teacherArticleForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    dom.teacherArticleTitle.focus({ preventScroll: true });
 }
 
 // ============================================
@@ -1349,9 +1447,10 @@ async function deleteTeacherArticle() {
 function setupEventListeners() {
     dom.loginBtn.addEventListener('click', handleLogin);
     dom.logoutBtn.addEventListener('click', handleLogout);
-    dom.openTeacherBtn.addEventListener('click', () => {
+    dom.openTeacherBtn.addEventListener('click', async () => {
         if (state.student.isTeacher !== true) return;
         dom.teacherModal.classList.remove('hidden');
+        await refreshCloudArticlesList();
     });
     document.getElementById('teacherModalClose').addEventListener('click', () => {
         dom.teacherModal.classList.add('hidden');
@@ -1377,9 +1476,7 @@ function setupEventListeners() {
     });
     dom.targetGroupSelect.addEventListener('change', () => {
         dom.customTargetGroupWrap.classList.toggle('hidden', dom.targetGroupSelect.value !== 'CUSTOM');
-        updateArticleTargetPreview();
     });
-    dom.customTargetGroup.addEventListener('input', updateArticleTargetPreview);
     dom.teacherArticleFile.addEventListener('change', () => {
         const file = dom.teacherArticleFile.files[0];
         if (!file) return;
@@ -1409,7 +1506,17 @@ function setupEventListeners() {
         dom.teacherArticleFile.value = '';
     });
     dom.saveTeacherArticleBtn.addEventListener('click', saveTeacherArticle);
-    dom.deleteArticleBtn.addEventListener('click', deleteTeacherArticle);
+    dom.refreshCloudArticlesBtn.addEventListener('click', refreshCloudArticlesList);
+    dom.cloudArticlesListContainer.addEventListener('click', event => {
+        const button = event.target.closest('button[data-action]');
+        if (!button) return;
+        const targetGroup = button.dataset.target;
+        if (button.dataset.action === 'edit') {
+            editCloudArticle(targetGroup);
+        } else if (button.dataset.action === 'delete') {
+            deleteCloudArticle(targetGroup);
+        }
+    });
     dom.exportRuleSelect.addEventListener('change', () => {
         const isDateRule = dom.exportRuleSelect.value === 'date';
         dom.exportDateWrap.classList.toggle('hidden', !isDateRule);
@@ -1572,7 +1679,7 @@ async function init() {
         await Promise.all([fetchLatestStudentList(), fetchCloudArticles()]);
         initializeTeacherClassOptions();
         dom.exportDateInput.value = getTodayDateKey();
-        updateArticleTargetPreview();
+        renderCloudArticlesList();
 
         // 2. 初始化遊戲狀態
         initGame();

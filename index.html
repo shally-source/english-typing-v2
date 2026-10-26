@@ -183,38 +183,47 @@
                     <button id="teacherScoresTab" class="teacher-tab" type="button" role="tab" aria-selected="false">📊 成績查詢與匯出</button>
                 </div>
                 <section id="teacherArticlePanel" class="teacher-panel">
-                    <div class="input-group">
-                        <label for="targetGroupSelect">派發對象</label>
-                        <select id="targetGroupSelect">
-                            <option value="ALL">ALL (全校預設)</option>
-                            <option value="P1">P1</option>
-                            <option value="P2">P2</option>
-                            <option value="P3">P3</option>
-                            <option value="P4">P4</option>
-                            <option value="P5">P5</option>
-                            <option value="P6">P6</option>
-                            <option value="CUSTOM">指定班級…</option>
-                        </select>
-                    </div>
-                    <div id="customTargetGroupWrap" class="input-group hidden">
-                        <label for="customTargetGroup">班級代碼 (例如 P2A)</label>
-                        <input id="customTargetGroup" type="text" maxlength="8" placeholder="P2A">
-                    </div>
-                    <p id="articleTargetPreview" class="score-load-status" aria-live="polite"></p>
-                    <button id="deleteArticleBtn" class="btn-primary teacher-submit-btn" type="button" style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); margin-bottom: 1rem;" disabled>🗑️ 刪除目前選定對象的文章</button>
-                    <div class="input-group">
-                        <label for="teacherArticleTitle">文章標題</label>
-                        <input id="teacherArticleTitle" type="text" maxlength="120" placeholder="輸入文章標題">
-                    </div>
-                    <div class="file-upload teacher-file-upload">
-                        <label for="teacherArticleFile">📄 上傳 .txt 純文字檔</label>
-                        <input id="teacherArticleFile" type="file" accept=".txt,text/plain">
-                    </div>
-                    <div class="input-group">
-                        <label for="teacherArticleContent">英文文章內容</label>
-                        <textarea id="teacherArticleContent" rows="9" placeholder="在此貼上或編輯英文文章..."></textarea>
-                    </div>
-                    <button id="saveTeacherArticleBtn" class="btn-primary teacher-submit-btn" type="button">儲存並派發至雲端</button>
+                    <section class="cloud-articles-overview">
+                        <div class="cloud-articles-heading">
+                            <h3>📋 目前雲端已派發文章</h3>
+                            <button id="refreshCloudArticlesBtn" class="btn-primary cloud-refresh-btn" type="button">🔄 重新整理雲端文章</button>
+                        </div>
+                        <p id="cloudArticlesStatus" class="score-load-status" aria-live="polite"></p>
+                        <div id="cloudArticlesListContainer" class="cloud-articles-list"></div>
+                    </section>
+                    <section id="teacherArticleForm" class="teacher-article-form">
+                        <h3>➕ 新增 / 更新預設文章</h3>
+                        <div class="input-group">
+                            <label for="targetGroupSelect">派發對象</label>
+                            <select id="targetGroupSelect">
+                                <option value="ALL">ALL (全校預設)</option>
+                                <option value="P1">P1</option>
+                                <option value="P2">P2</option>
+                                <option value="P3">P3</option>
+                                <option value="P4">P4</option>
+                                <option value="P5">P5</option>
+                                <option value="P6">P6</option>
+                                <option value="CUSTOM">指定班級…</option>
+                            </select>
+                        </div>
+                        <div id="customTargetGroupWrap" class="input-group hidden">
+                            <label for="customTargetGroup">班級代碼 (例如 P2A)</label>
+                            <input id="customTargetGroup" type="text" maxlength="8" placeholder="P2A">
+                        </div>
+                        <div class="input-group">
+                            <label for="teacherArticleTitle">文章標題</label>
+                            <input id="teacherArticleTitle" type="text" maxlength="120" placeholder="輸入文章標題">
+                        </div>
+                        <div class="file-upload teacher-file-upload">
+                            <label for="teacherArticleFile">📄 上傳 .txt 純文字檔</label>
+                            <input id="teacherArticleFile" type="file" accept=".txt,text/plain">
+                        </div>
+                        <div class="input-group">
+                            <label for="teacherArticleContent">英文文章內容</label>
+                            <textarea id="teacherArticleContent" rows="9" placeholder="在此貼上或編輯英文文章..."></textarea>
+                        </div>
+                        <button id="saveTeacherArticleBtn" class="btn-primary teacher-submit-btn" type="button">💾 儲存並派發至雲端</button>
+                    </section>
                 </section>
                 <section id="teacherScoresPanel" class="teacher-panel hidden">
                     <div class="teacher-filter-row">
