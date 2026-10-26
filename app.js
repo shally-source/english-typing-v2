@@ -128,7 +128,10 @@ async function fetchLatestStudentList() {
         if (!url) return [];
         const response = await fetch(url);
         if (!response.ok) throw new Error(`雲端${label}名單回應異常`);
-        return parseCSV(await response.text());
+        return parseCSV(await response.text()).map(student => ({
+            ...student,
+            account: String(student.account || '').replace(/^\uFEFF/, '').trim()
+        }));
     };
 
     const [studentResult, teacherResult] = await Promise.allSettled([
@@ -136,9 +139,10 @@ async function fetchLatestStudentList() {
         loadCsv(configObj.TEACHER_CSV_URL, '教師')
     ]);
 
+    let studentList;
     if (studentResult.status === 'fulfilled' && studentResult.value.length > 0) {
-        dynamicStudentList = studentResult.value;
-        console.log(`成功同步雲端學生名單共 ${dynamicStudentList.length} 位（含學號）`);
+        studentList = studentResult.value;
+        console.log(`成功同步雲端學生名單共 ${studentList.length} 位（含學號）`);
     } else {
         if (studentResult.status === 'rejected') {
             console.error('線上學生名單載入失敗，採用本地名單備份:', studentResult.reason);
@@ -146,21 +150,24 @@ async function fetchLatestStudentList() {
             console.warn('雲端學生名單為空，採用本地名單備份');
         }
         fallbackToDefaultStudents();
+        studentList = dynamicStudentList;
     }
 
+    let teacherList = [];
     if (teacherResult.status === 'fulfilled') {
-        const teacherAccounts = new Set(dynamicStudentList.map(student => String(student.account).toLowerCase()));
-        const newTeachers = teacherResult.value.filter(teacher => {
-            const account = String(teacher.account).toLowerCase();
+        const teacherAccounts = new Set(studentList.map(student => String(student.account || '').trim().toLowerCase()));
+        teacherList = teacherResult.value.filter(teacher => {
+            const account = String(teacher.account || '').trim().toLowerCase();
             if (!account || teacherAccounts.has(account)) return false;
             teacherAccounts.add(account);
             return true;
         });
-        dynamicStudentList = dynamicStudentList.concat(newTeachers);
-        console.log(`成功同步雲端教師名單共 ${newTeachers.length} 位`);
+        console.log(`成功同步雲端教師名單共 ${teacherList.length} 位`);
     } else if (configObj.TEACHER_CSV_URL) {
         console.error('線上教師名單載入失敗:', teacherResult.reason);
     }
+
+    dynamicStudentList = studentList.concat(teacherList);
 }
 
 function fallbackToDefaultStudents() {
