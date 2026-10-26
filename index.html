@@ -71,6 +71,10 @@
                     <span>⏸️</span>
                     <span>暫停</span>
                 </button>
+                <button id="openTeacherBtn" class="action-btn teacher-btn hidden">
+                    <span>🛠️</span>
+                    <span>教師後台</span>
+                </button>
                 <span id="loggedInInfo" class="logged-in-info hidden">
                     <span class="user-avatar" id="userAvatar">?</span>
                     <span id="loggedInName"></span>
@@ -162,6 +166,99 @@
                 </div>
 
                 <button id="confirmBtn" class="btn-primary">開始挑戰 🚀</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teacher Management Modal -->
+    <div id="teacherModal" class="modal-overlay hidden">
+        <div class="modal teacher-modal">
+            <div class="modal-header">
+                <h2>🛠️ 教師管理後台</h2>
+                <button id="teacherModalClose" class="modal-close-btn" aria-label="關閉教師後台">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="teacher-tabs" role="tablist">
+                    <button id="teacherArticleTab" class="teacher-tab active" type="button" role="tab" aria-selected="true">📝 派發預設文章</button>
+                    <button id="teacherScoresTab" class="teacher-tab" type="button" role="tab" aria-selected="false">📊 成績查詢與匯出</button>
+                </div>
+                <section id="teacherArticlePanel" class="teacher-panel">
+                    <div class="input-group">
+                        <label for="targetGroupSelect">派發對象</label>
+                        <select id="targetGroupSelect">
+                            <option value="ALL">ALL (全校預設)</option>
+                            <option value="P1">P1</option>
+                            <option value="P2">P2</option>
+                            <option value="P3">P3</option>
+                            <option value="P4">P4</option>
+                            <option value="P5">P5</option>
+                            <option value="P6">P6</option>
+                            <option value="CUSTOM">指定班級…</option>
+                        </select>
+                    </div>
+                    <div id="customTargetGroupWrap" class="input-group hidden">
+                        <label for="customTargetGroup">班級代碼 (例如 P2A)</label>
+                        <input id="customTargetGroup" type="text" maxlength="8" placeholder="P2A">
+                    </div>
+                    <div class="input-group">
+                        <label for="teacherArticleTitle">文章標題</label>
+                        <input id="teacherArticleTitle" type="text" maxlength="120" placeholder="輸入文章標題">
+                    </div>
+                    <div class="file-upload teacher-file-upload">
+                        <label for="teacherArticleFile">📄 上傳 .txt 純文字檔</label>
+                        <input id="teacherArticleFile" type="file" accept=".txt,text/plain">
+                    </div>
+                    <div class="input-group">
+                        <label for="teacherArticleContent">英文文章內容</label>
+                        <textarea id="teacherArticleContent" rows="9" placeholder="在此貼上或編輯英文文章..."></textarea>
+                    </div>
+                    <button id="saveTeacherArticleBtn" class="btn-primary teacher-submit-btn" type="button">儲存並派發至雲端</button>
+                </section>
+                <section id="teacherScoresPanel" class="teacher-panel hidden">
+                    <div class="teacher-filter-row">
+                        <div class="input-group">
+                            <label for="exportClassSelect">班級篩選</label>
+                            <select id="exportClassSelect"></select>
+                        </div>
+                        <div class="input-group">
+                            <label for="exportRuleSelect">篩選規則</label>
+                            <select id="exportRuleSelect">
+                                <option value="all">所有歷史練習紀錄</option>
+                                <option value="date">指定日期</option>
+                                <option value="best">每位學生最高分</option>
+                            </select>
+                        </div>
+                        <div id="exportDateWrap" class="input-group hidden">
+                            <label for="exportDateInput">測驗日期</label>
+                            <input id="exportDateInput" type="date">
+                        </div>
+                    </div>
+                    <div class="teacher-score-actions">
+                        <button id="loadCloudScoresBtn" class="btn-primary" type="button">🔄 載入雲端成績</button>
+                        <button id="exportScoresBtn" class="btn-primary export-btn" type="button" disabled>📥 匯出 Excel (CSV)</button>
+                    </div>
+                    <p id="scoreLoadStatus" class="score-load-status" aria-live="polite"></p>
+                    <div class="score-table-wrap">
+                        <table class="score-table">
+                            <thead>
+                                <tr>
+                                    <th>測驗時間</th>
+                                    <th>學號</th>
+                                    <th>帳號</th>
+                                    <th>姓名</th>
+                                    <th>班級</th>
+                                    <th>總分</th>
+                                    <th>速度</th>
+                                    <th>準確度</th>
+                                    <th>錯字數</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scorePreviewBody">
+                                <tr><td colspan="9" class="score-empty">尚未載入成績</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </div>

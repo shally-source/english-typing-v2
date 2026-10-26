@@ -27,6 +27,9 @@ const state = {
 
 // 全域儲存由線上/本地載入的學生動態名單
 let dynamicStudentList = [];
+let cloudArticles = {};
+let cloudScores = [];
+let scorePreviewRows = [];
 
 // ============================================
 // DOM Elements
@@ -60,6 +63,27 @@ const dom = {
     userAvatar: document.getElementById('userAvatar'),
     logoutBtn: document.getElementById('logoutBtn'),
     openLoginBtn: document.getElementById('openLoginBtn'),
+    openTeacherBtn: document.getElementById('openTeacherBtn'),
+    teacherModal: document.getElementById('teacherModal'),
+    targetGroupSelect: document.getElementById('targetGroupSelect'),
+    customTargetGroupWrap: document.getElementById('customTargetGroupWrap'),
+    customTargetGroup: document.getElementById('customTargetGroup'),
+    teacherArticleTitle: document.getElementById('teacherArticleTitle'),
+    teacherArticleFile: document.getElementById('teacherArticleFile'),
+    teacherArticleContent: document.getElementById('teacherArticleContent'),
+    saveTeacherArticleBtn: document.getElementById('saveTeacherArticleBtn'),
+    teacherArticleTab: document.getElementById('teacherArticleTab'),
+    teacherScoresTab: document.getElementById('teacherScoresTab'),
+    teacherArticlePanel: document.getElementById('teacherArticlePanel'),
+    teacherScoresPanel: document.getElementById('teacherScoresPanel'),
+    exportClassSelect: document.getElementById('exportClassSelect'),
+    exportRuleSelect: document.getElementById('exportRuleSelect'),
+    exportDateWrap: document.getElementById('exportDateWrap'),
+    exportDateInput: document.getElementById('exportDateInput'),
+    loadCloudScoresBtn: document.getElementById('loadCloudScoresBtn'),
+    exportScoresBtn: document.getElementById('exportScoresBtn'),
+    scoreLoadStatus: document.getElementById('scoreLoadStatus'),
+    scorePreviewBody: document.getElementById('scorePreviewBody'),
     actionBtnText: document.getElementById('actionBtnText'),
     pauseBtn: document.getElementById('pauseBtn'),
     pauseOverlay: document.getElementById('pauseOverlay'),
@@ -100,29 +124,42 @@ function parseCSV(csvText) {
 
 async function fetchLatestStudentList() {
     const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : (typeof CONFIG !== 'undefined' ? CONFIG : {});
-    const csvUrl = configObj.GOOGLE_SHEET_CSV_URL;
+    const loadCsv = async (url, label) => {
+        if (!url) return [];
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`雲端${label}名單回應異常`);
+        return parseCSV(await response.text());
+    };
 
-    if (!csvUrl) {
-        console.warn('未設定 CONFIG.GOOGLE_SHEET_CSV_URL，退回使用本地預設名單');
+    const [studentResult, teacherResult] = await Promise.allSettled([
+        loadCsv(configObj.GOOGLE_SHEET_CSV_URL, '學生'),
+        loadCsv(configObj.TEACHER_CSV_URL, '教師')
+    ]);
+
+    if (studentResult.status === 'fulfilled' && studentResult.value.length > 0) {
+        dynamicStudentList = studentResult.value;
+        console.log(`成功同步雲端學生名單共 ${dynamicStudentList.length} 位（含學號）`);
+    } else {
+        if (studentResult.status === 'rejected') {
+            console.error('線上學生名單載入失敗，採用本地名單備份:', studentResult.reason);
+        } else {
+            console.warn('雲端學生名單為空，採用本地名單備份');
+        }
         fallbackToDefaultStudents();
-        return;
     }
 
-    try {
-        const response = await fetch(csvUrl);
-        if (!response.ok) throw new Error('雲端學生名單回應異常');
-        const csvText = await response.text();
-        const parsedList = parseCSV(csvText);
-        
-        if (parsedList.length > 0) {
-            dynamicStudentList = parsedList;
-            console.log(`成功同步雲端學生名單共 ${dynamicStudentList.length} 位（含學號）`);
-        } else {
-            fallbackToDefaultStudents();
-        }
-    } catch (error) {
-        console.error('線上學生名單載入失敗，採用本地名單備份:', error);
-        fallbackToDefaultStudents();
+    if (teacherResult.status === 'fulfilled') {
+        const teacherAccounts = new Set(dynamicStudentList.map(student => String(student.account).toLowerCase()));
+        const newTeachers = teacherResult.value.filter(teacher => {
+            const account = String(teacher.account).toLowerCase();
+            if (!account || teacherAccounts.has(account)) return false;
+            teacherAccounts.add(account);
+            return true;
+        });
+        dynamicStudentList = dynamicStudentList.concat(newTeachers);
+        console.log(`成功同步雲端教師名單共 ${newTeachers.length} 位`);
+    } else if (configObj.TEACHER_CSV_URL) {
+        console.error('線上教師名單載入失敗:', teacherResult.reason);
     }
 }
 
@@ -135,6 +172,22 @@ function fallbackToDefaultStudents() {
         }));
     } else {
         dynamicStudentList = [];
+    }
+}
+
+async function fetchCloudArticles() {
+    const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
+    try {
+        const response = await fetch(`${configObj.SCRIPT_URL}?action=getArticles`);
+        if (!response.ok) throw new Error('雲端預設文章回應異常');
+        const data = await response.json();
+        if (!data || typeof data.articles !== 'object' || Array.isArray(data.articles)) {
+            throw new Error('雲端預設文章格式不正確');
+        }
+        cloudArticles = data.articles;
+    } catch (error) {
+        console.error('雲端預設文章載入失敗，將使用預設文章:', error);
+        cloudArticles = {};
     }
 }
 
@@ -256,6 +309,7 @@ function parseStudentIdentity(studentData, account) {
     const classId = studentData.classId || studentData.id || '';
     const normalized = String(classId).trim().toUpperCase();
     const match = normalized.match(/^([A-Z0-9]+?)([A-Z])([0-9]*)$/);
+    const isTeacher = [classId, studentData.grade].some(value => String(value || '').trim().toUpperCase() === 'TEACHER');
 
     const explicitNumber = [
         studentData.Number,
@@ -272,16 +326,28 @@ function parseStudentIdentity(studentData, account) {
 
     // 抓取官方學號（student_id）
     const studentIdVal = studentData.student_id || studentData.studentId || classId || account;
+    const rawGrade = String(studentData.grade || (match ? match[1] : '') || '').toUpperCase();
 
     return {
         name: studentData.name || '',
         id: classId,
         studentId: String(studentIdVal).trim(), // 保存官方學號
         account: account || '',
-        grade: String(studentData.grade || (match ? match[1] : '') || '').toUpperCase(),
+        grade: /^\d+$/.test(rawGrade) ? `P${rawGrade}` : rawGrade,
         className: String(studentData.className || (match ? match[2] : '') || '').toUpperCase(),
-        number: parsedNumber
+        number: parsedNumber,
+        isTeacher
     };
+}
+
+function getStudentClassGroup(student) {
+    const grade = String(student.grade || '').trim().toUpperCase();
+    const className = String(student.className || '').trim().toUpperCase();
+    if (grade && className && grade !== 'TEACHER') return `${grade}${className}`;
+
+    const classId = String(student.id || student.classId || '').trim().toUpperCase();
+    const match = classId.match(/^(.+?[A-Z])(?:\d+)?$/);
+    return match && match[1] !== 'TEACHER' ? match[1] : '';
 }
 
 function formatStudentInfoLabel(student) {
@@ -329,6 +395,7 @@ function loginSuccess(account, studentData) {
     dom.userAvatar.textContent = studentData.name.charAt(0);
     dom.loggedInInfo.classList.remove('hidden');
     dom.openLoginBtn.classList.add('hidden');
+    dom.openTeacherBtn.classList.toggle('hidden', state.student.isTeacher !== true);
     dom.actionBtnText.textContent = '選擇文章 📚';
 
     dom.loginAccount.value = '';
@@ -339,7 +406,13 @@ function loginSuccess(account, studentData) {
     const previewEl = document.getElementById('textPreview');
     if (previewEl) previewEl.classList.add('hidden');
     
-    state.targetText = CONFIG.DEFAULT_ARTICLE;
+    const classGroup = getStudentClassGroup(state.student);
+    const article = cloudArticles[state.student.id] ||
+        (classGroup ? cloudArticles[classGroup] : null) ||
+        cloudArticles[state.student.grade] ||
+        cloudArticles.ALL;
+    const articleContent = typeof article === 'string' ? article : article && article.content;
+    state.targetText = articleContent || CONFIG.DEFAULT_ARTICLE;
     state.userInput = '';
     renderText();
     updateHint();
@@ -358,10 +431,11 @@ function loginSuccess(account, studentData) {
 }
 
 function handleLogout() {
-    state.student = { name: '', id: '', studentId: '', account: '', grade: '', className: '', number: '' };
+    state.student = { name: '', id: '', studentId: '', account: '', grade: '', className: '', number: '', isTeacher: false };
     dom.studentInfoDisplay.textContent = '未登錄';
     dom.loggedInInfo.classList.add('hidden');
     dom.openLoginBtn.classList.remove('hidden');
+    dom.openTeacherBtn.classList.add('hidden');
     dom.loginAccount.value = '';
     dom.loginPassword.value = '';
     dom.loginError.classList.remove('show');
@@ -927,12 +1001,350 @@ async function uploadResults(results) {
     }
 }
 
+function getTodayDateKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[char]);
+}
+
+function initializeTeacherClassOptions() {
+    const options = new Map([['ALL', '全部班級']]);
+    for (let grade = 1; grade <= 6; grade++) {
+        options.set(`P${grade}`, `P${grade} 年級`);
+    }
+    dynamicStudentList.forEach(student => {
+        const group = getStudentClassGroup(parseStudentIdentity(student, student.account));
+        if (group) options.set(group, group);
+    });
+    dom.exportClassSelect.innerHTML = Array.from(options, ([value, label]) =>
+        `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`
+    ).join('');
+}
+
+function getRecordField(record, names) {
+    const normalized = new Map(Object.entries(record || {}).map(([key, value]) => [
+        key.toLowerCase().replace(/[^a-z0-9\u3400-\u9fff]/g, ''),
+        value
+    ]));
+    for (const name of names) {
+        const value = normalized.get(name.toLowerCase().replace(/[^a-z0-9\u3400-\u9fff]/g, ''));
+        if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    }
+    return '';
+}
+
+function getScoreDateKey(value) {
+    const text = String(value || '').trim();
+    const isoDate = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoDate) return `${isoDate[1]}-${String(isoDate[2]).padStart(2, '0')}-${String(isoDate[3]).padStart(2, '0')}`;
+    const parsedDate = new Date(text);
+    if (Number.isNaN(parsedDate.getTime())) return '';
+    return `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}`;
+}
+
+function getScoreStudent(record) {
+    const account = String(getRecordField(record, ['account', '帳號'])).trim();
+    const studentId = String(getRecordField(record, ['student_id', 'studentId', 'studentNo', '學號'])).trim();
+    const student = dynamicStudentList.find(candidate =>
+        (account && String(candidate.account).toLowerCase() === account.toLowerCase()) ||
+        (studentId && String(candidate.student_id || candidate.studentId || '').trim() === studentId)
+    );
+    return { student, account, studentId };
+}
+
+function normalizeScoreRecord(record) {
+    const { student, account, studentId } = getScoreStudent(record);
+    const rawGrade = String(getRecordField(record, ['grade', '年級']) || student?.grade || '').trim().toUpperCase();
+    const rawClass = String(getRecordField(record, ['className', 'class', 'classId', '班級']) || '').trim().toUpperCase();
+    const classGroup = student
+        ? getStudentClassGroup(parseStudentIdentity(student, student.account))
+        : (rawClass.startsWith('P') ? rawClass : `${rawGrade.startsWith('P') ? rawGrade : (rawGrade ? `P${rawGrade}` : '')}${rawClass}`);
+    const gradeMatch = classGroup.match(/^(P\d+)/) || rawGrade.match(/^(P\d+)/);
+
+    return {
+        timestamp: String(getRecordField(record, ['timestamp', 'time', '測驗時間']) || ''),
+        studentId: studentId || (student && String(student.student_id || student.studentId || '')) || '',
+        account: account || (student && String(student.account || '')) || '',
+        name: String(getRecordField(record, ['name', 'studentName', '姓名']) || (student && student.name) || ''),
+        className: classGroup || rawClass,
+        grade: gradeMatch ? gradeMatch[1] : rawGrade,
+        score: getRecordField(record, ['score', 'totalScore', '總分']),
+        speed: getRecordField(record, ['speed', '速度']),
+        accuracy: getRecordField(record, ['accuracy', '準確度']),
+        errors: getRecordField(record, ['errors', 'errorCount', '錯字數']),
+        number: String((student && student.number) || getRecordField(record, ['number', 'studentNumber', '座號']) || ''),
+        dateKey: getScoreDateKey(getRecordField(record, ['timestamp', 'time', '測驗時間']))
+    };
+}
+
+function scoreMatchesClass(row, selectedClass) {
+    if (selectedClass === 'ALL') return true;
+    if (/^P[1-6]$/.test(selectedClass)) return row.grade === selectedClass || row.className.startsWith(selectedClass);
+    return row.className === selectedClass;
+}
+
+function sortStudentRows(a, b) {
+    const numberDifference = Number(a.number || 0) - Number(b.number || 0);
+    if (Number.isFinite(numberDifference) && numberDifference !== 0) return numberDifference;
+    return String(a.studentId || a.account || a.name).localeCompare(String(b.studentId || b.account || b.name), undefined, { numeric: true });
+}
+
+function getBestScoreRows(filteredRecords, selectedClass) {
+    const bestByStudent = new Map();
+    filteredRecords.forEach(row => {
+        const key = (row.account || row.studentId || row.name).toLowerCase();
+        if (!key) return;
+        const previous = bestByStudent.get(key);
+        if (!previous || Number(row.score || 0) > Number(previous.score || 0)) bestByStudent.set(key, row);
+    });
+
+    const roster = dynamicStudentList
+        .map(student => ({ student, identity: parseStudentIdentity(student, student.account) }))
+        .filter(item => !item.identity.isTeacher)
+        .filter(item => selectedClass === 'ALL' ||
+            (/^P[1-6]$/.test(selectedClass)
+                ? item.identity.grade === selectedClass
+                : getStudentClassGroup(item.identity) === selectedClass))
+        .sort((a, b) => sortStudentRows({
+            number: a.identity.number,
+            studentId: a.identity.studentId,
+            account: a.identity.account,
+            name: a.identity.name
+        }, {
+            number: b.identity.number,
+            studentId: b.identity.studentId,
+            account: b.identity.account,
+            name: b.identity.name
+        }));
+
+    const rosterKeys = new Set();
+    const rosterRows = roster.map(({ student, identity }) => {
+        const key = (identity.account || identity.studentId || identity.name).toLowerCase();
+        rosterKeys.add(key);
+        return bestByStudent.get(key) || {
+            timestamp: '未測驗',
+            studentId: identity.studentId,
+            account: identity.account,
+            name: identity.name,
+            className: getStudentClassGroup(identity),
+            grade: identity.grade,
+            score: 0,
+            speed: 0,
+            accuracy: 0,
+            errors: 0,
+            number: identity.number
+        };
+    });
+    const nonRosterRows = Array.from(bestByStudent.entries())
+        .filter(([key]) => !rosterKeys.has(key))
+        .map(([, row]) => row)
+        .sort(sortStudentRows);
+    return rosterRows.concat(nonRosterRows);
+}
+
+function applyScoreFilters() {
+    const selectedClass = dom.exportClassSelect.value || 'ALL';
+    const rule = dom.exportRuleSelect.value;
+    const selectedDate = dom.exportDateInput.value;
+    const matchingRecords = cloudScores
+        .map(normalizeScoreRecord)
+        .filter(row => scoreMatchesClass(row, selectedClass));
+
+    if (rule === 'date') {
+        scorePreviewRows = matchingRecords.filter(row => row.dateKey === selectedDate);
+    } else if (rule === 'best') {
+        scorePreviewRows = getBestScoreRows(matchingRecords, selectedClass);
+    } else {
+        scorePreviewRows = matchingRecords;
+    }
+
+    renderScorePreview();
+    dom.exportScoresBtn.disabled = scorePreviewRows.length === 0;
+    dom.scoreLoadStatus.textContent = `目前顯示 ${scorePreviewRows.length} 筆成績`;
+}
+
+function renderScorePreview() {
+    if (scorePreviewRows.length === 0) {
+        dom.scorePreviewBody.innerHTML = '<tr><td colspan="9" class="score-empty">沒有符合條件的成績</td></tr>';
+        return;
+    }
+    dom.scorePreviewBody.innerHTML = scorePreviewRows.map(row => `
+        <tr>
+            <td>${escapeHtml(row.timestamp)}</td>
+            <td>${escapeHtml(row.studentId)}</td>
+            <td>${escapeHtml(row.account)}</td>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${escapeHtml(row.className)}</td>
+            <td>${escapeHtml(row.score)}</td>
+            <td>${escapeHtml(row.speed)}</td>
+            <td>${escapeHtml(row.accuracy)}</td>
+            <td>${escapeHtml(row.errors)}</td>
+        </tr>
+    `).join('');
+}
+
+async function loadCloudScores() {
+    const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
+    dom.scoreLoadStatus.textContent = '正在載入雲端成績…';
+    dom.loadCloudScoresBtn.disabled = true;
+    try {
+        const response = await fetch(`${configObj.SCRIPT_URL}?action=getScores`);
+        if (!response.ok) throw new Error('雲端成績回應異常');
+        const data = await response.json();
+        const records = Array.isArray(data) ? data : data && (data.scores || data.data);
+        if (!Array.isArray(records)) throw new Error('雲端成績格式不正確');
+        cloudScores = records;
+        applyScoreFilters();
+        dom.scoreLoadStatus.textContent = `已載入 ${cloudScores.length} 筆雲端成績；目前顯示 ${scorePreviewRows.length} 筆`;
+    } catch (error) {
+        console.error('雲端成績載入失敗:', error);
+        dom.scoreLoadStatus.textContent = `❌ 載入失敗：${error.message}`;
+    } finally {
+        dom.loadCloudScoresBtn.disabled = false;
+    }
+}
+
+function exportScoreCsv() {
+    if (scorePreviewRows.length === 0) return;
+    const headers = ['測驗時間', '學號', '帳號', '姓名', '班級', '總分', '速度', '準確度', '錯字數'];
+    const fields = ['timestamp', 'studentId', 'account', 'name', 'className', 'score', 'speed', 'accuracy', 'errors'];
+    const csvValue = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...scorePreviewRows.map(row => fields.map(field => row[field]))]
+        .map(row => row.map(csvValue).join(','))
+        .join('\r\n');
+    const selectedClass = dom.exportClassSelect.value === 'ALL' ? '全部班級' : dom.exportClassSelect.value;
+    const date = dom.exportRuleSelect.value === 'date' ? dom.exportDateInput.value : getTodayDateKey();
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `打字成績_${selectedClass}_${date}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function saveTeacherArticle() {
+    if (state.student.isTeacher !== true) return;
+    const targetGroup = dom.targetGroupSelect.value === 'CUSTOM'
+        ? dom.customTargetGroup.value.trim().toUpperCase()
+        : dom.targetGroupSelect.value;
+    const title = dom.teacherArticleTitle.value.trim();
+    const content = dom.teacherArticleContent.value
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map(line => line.trimEnd())
+        .join('\n')
+        .trim();
+
+    if (!targetGroup || !title || !content) {
+        alert('請選擇派發對象，並輸入文章標題與內容。');
+        return;
+    }
+
+    const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
+    const payload = { action: 'saveArticle', targetGroup, title, content, teacherName: state.student.name };
+    dom.saveTeacherArticleBtn.disabled = true;
+    try {
+        await fetch(configObj.SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        cloudArticles[targetGroup] = { title, content };
+        alert('✅ 已成功派發預設文章！');
+    } catch (error) {
+        console.error('預設文章派發失敗:', error);
+        alert(`❌ 派發失敗：${error.message}`);
+    } finally {
+        dom.saveTeacherArticleBtn.disabled = false;
+    }
+}
+
 // ============================================
 // Event Handlers
 // ============================================
 function setupEventListeners() {
     dom.loginBtn.addEventListener('click', handleLogin);
     dom.logoutBtn.addEventListener('click', handleLogout);
+    dom.openTeacherBtn.addEventListener('click', () => {
+        if (state.student.isTeacher !== true) return;
+        dom.teacherModal.classList.remove('hidden');
+    });
+    document.getElementById('teacherModalClose').addEventListener('click', () => {
+        dom.teacherModal.classList.add('hidden');
+    });
+    dom.teacherModal.addEventListener('click', event => {
+        if (event.target === dom.teacherModal) dom.teacherModal.classList.add('hidden');
+    });
+    dom.teacherArticleTab.addEventListener('click', () => {
+        dom.teacherArticleTab.classList.add('active');
+        dom.teacherArticleTab.setAttribute('aria-selected', 'true');
+        dom.teacherScoresTab.classList.remove('active');
+        dom.teacherScoresTab.setAttribute('aria-selected', 'false');
+        dom.teacherArticlePanel.classList.remove('hidden');
+        dom.teacherScoresPanel.classList.add('hidden');
+    });
+    dom.teacherScoresTab.addEventListener('click', () => {
+        dom.teacherScoresTab.classList.add('active');
+        dom.teacherScoresTab.setAttribute('aria-selected', 'true');
+        dom.teacherArticleTab.classList.remove('active');
+        dom.teacherArticleTab.setAttribute('aria-selected', 'false');
+        dom.teacherScoresPanel.classList.remove('hidden');
+        dom.teacherArticlePanel.classList.add('hidden');
+    });
+    dom.targetGroupSelect.addEventListener('change', () => {
+        dom.customTargetGroupWrap.classList.toggle('hidden', dom.targetGroupSelect.value !== 'CUSTOM');
+    });
+    dom.teacherArticleFile.addEventListener('change', () => {
+        const file = dom.teacherArticleFile.files[0];
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            alert('請選擇副檔名為 .txt 的純文字檔案。');
+            dom.teacherArticleFile.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = event => {
+            const text = String(event.target.result || '')
+                .replace(/\r\n?/g, '\n')
+                .split('\n')
+                .map(line => line.trimEnd())
+                .join('\n')
+                .trim();
+            dom.teacherArticleContent.value = text;
+            if (!dom.teacherArticleTitle.value.trim()) {
+                dom.teacherArticleTitle.value = file.name.replace(/\.txt$/i, '');
+            }
+        };
+        reader.onerror = () => {
+            console.error('教師文章檔案讀取失敗:', reader.error);
+            alert('❌ 讀取文章檔案失敗，請重新選擇。');
+        };
+        reader.readAsText(file, 'UTF-8');
+        dom.teacherArticleFile.value = '';
+    });
+    dom.saveTeacherArticleBtn.addEventListener('click', saveTeacherArticle);
+    dom.exportRuleSelect.addEventListener('change', () => {
+        const isDateRule = dom.exportRuleSelect.value === 'date';
+        dom.exportDateWrap.classList.toggle('hidden', !isDateRule);
+        applyScoreFilters();
+    });
+    dom.exportDateInput.addEventListener('change', applyScoreFilters);
+    dom.exportClassSelect.addEventListener('change', applyScoreFilters);
+    dom.loadCloudScoresBtn.addEventListener('click', loadCloudScores);
+    dom.exportScoresBtn.addEventListener('click', exportScoreCsv);
     dom.openLoginBtn.addEventListener('click', () => {
         dom.loginModal.classList.remove('hidden');
         dom.loginAccount.focus();
@@ -988,7 +1400,8 @@ function setupEventListeners() {
 
         if (!dom.articleModal.classList.contains('hidden') ||
             !dom.resultModal.classList.contains('hidden') ||
-            !dom.loginModal.classList.contains('hidden')) return;
+            !dom.loginModal.classList.contains('hidden') ||
+            !dom.teacherModal.classList.contains('hidden')) return;
 
         if (e.key === ' ' && state.isPaused) {
             togglePause();
@@ -1065,6 +1478,7 @@ function setupEventListeners() {
         }
         if (dom.articleModal.classList.contains('hidden') &&
             dom.resultModal.classList.contains('hidden') &&
+            dom.teacherModal.classList.contains('hidden') &&
             !state.isPaused && state.student.name) {
             dom.hiddenInput.focus();
         }
@@ -1080,8 +1494,10 @@ async function init() {
         ConfettiSystem.init();
         setupEventListeners();
         
-        // 1. 先同步雲端試算表學生名單（含學號）
-        await fetchLatestStudentList();
+        // 1. 同步學生與教師名單，以及雲端派發文章
+        await Promise.all([fetchLatestStudentList(), fetchCloudArticles()]);
+        initializeTeacherClassOptions();
+        dom.exportDateInput.value = getTodayDateKey();
 
         // 2. 初始化遊戲狀態
         initGame();
@@ -1210,4 +1626,3 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-
