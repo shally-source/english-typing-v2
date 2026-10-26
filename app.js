@@ -102,26 +102,75 @@ const dom = {
 // Dynamic Student Data Loader (Google Sheets CSV)
 // ============================================
 function parseCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    const result = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        
-        const cols = line.split(',').map(item => item.trim().replace(/^["']|["']$/g, '').replace(/\r/g, ''));
-        if (cols.length >= 4) {
-            result.push({
-                account: cols[0],
-                student_id: cols[1] || cols[0],
-                name: cols[2],
-                classId: cols[3],
-                password: cols[4] || '123456',
-                grade: cols[5] || '',
-                className: cols[6] || '',
-                number: cols[7] || ''
-            });
+    if (!csvText) return [];
+
+    const rows = [];
+    let row = [];
+    let field = '';
+    let insideQuotes = false;
+    const text = String(csvText).replace(/^\uFEFF/, '');
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+
+        if (char === '"') {
+            if (insideQuotes && text[i + 1] === '"') {
+                field += '"';
+                i++;
+            } else {
+                insideQuotes = !insideQuotes;
+            }
+        } else if (char === ',' && !insideQuotes) {
+            row.push(field);
+            field = '';
+        } else if ((char === '\n' || char === '\r') && !insideQuotes) {
+            if (char === '\r' && text[i + 1] === '\n') i++;
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        } else {
+            field += char;
         }
+    }
+
+    if (field || row.length > 0) {
+        row.push(field);
+        rows.push(row);
+    }
+
+    const result = [];
+
+    for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i].map(item => item.trim().replace(/^'|'$/g, ''));
+        if (cols.every(item => !item) || cols.length < 4) continue;
+
+        const account = cols[0].replace(/^\uFEFF/, '').toLowerCase();
+        const student_id = cols[1] || account;
+        const name = cols[2];
+        const classId = cols[3] || '';
+        const password = cols[4] || '123456';
+
+        let grade = '';
+        let className = '';
+        const match = classId.match(/^(P\d+)([A-Z]?)$/i);
+        if (match) {
+            grade = match[1].toUpperCase();
+            className = match[2].toUpperCase();
+        } else if (classId.toUpperCase() === 'TEACHER') {
+            grade = 'TEACHER';
+        }
+
+        result.push({
+            account,
+            student_id,
+            name,
+            classId,
+            password,
+            grade,
+            className,
+            number: ''
+        });
     }
     return result;
 }
@@ -198,7 +247,8 @@ async function fetchCloudArticles() {
         cloudArticles = data.articles;
         return true;
     } catch (error) {
-        console.error('雲端預設文章載入失敗，將使用預設文章:', error);
+        console.warn('雲端預設文章載入失敗，將使用預設文章:', error);
+        cloudArticles = {};
         return false;
     }
 }
@@ -1676,7 +1726,14 @@ async function init() {
         setupEventListeners();
         
         // 1. 同步學生與教師名單，以及雲端派發文章
-        await Promise.all([fetchLatestStudentList(), fetchCloudArticles()]);
+        const [studentResult] = await Promise.allSettled([
+            fetchLatestStudentList(),
+            fetchCloudArticles()
+        ]);
+        if (studentResult.status === 'rejected') {
+            console.error('名單載入程序發生未預期錯誤，改用本地預設名單:', studentResult.reason);
+            fallbackToDefaultStudents();
+        }
         initializeTeacherClassOptions();
         dom.exportDateInput.value = getTodayDateKey();
         renderCloudArticlesList();
