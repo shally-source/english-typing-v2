@@ -338,6 +338,16 @@ body {
     scroll-behavior: smooth;
     scroll-snap-type: y proximity;
     overflow-x: auto;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+#textDisplay,
+#textDisplay * {
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .text-area .line-block {
@@ -391,6 +401,10 @@ body {
     padding: 1.5rem 2rem;
     overflow-x: auto;
     max-width: 100%;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 .text-content::-webkit-scrollbar {

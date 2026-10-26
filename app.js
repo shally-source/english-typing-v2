@@ -1515,6 +1515,50 @@ function editCloudArticle(targetGroup) {
 // Event Handlers
 // ============================================
 function setupEventListeners() {
+    const isInsideTeacherModal = target =>
+        target instanceof Element && target.closest('#teacherModal') !== null;
+
+    window.addEventListener('paste', event => {
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
+    window.addEventListener('copy', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
+    window.addEventListener('cut', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    }, true);
+
+    window.addEventListener('contextmenu', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        event.preventDefault();
+    }, true);
+
+    window.addEventListener('dragstart', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        event.preventDefault();
+    }, true);
+
+    window.addEventListener('selectstart', event => {
+        if (isInsideTeacherModal(event.target)) return;
+        event.preventDefault();
+    }, true);
+
+    window.addEventListener('keydown', event => {
+        const key = event.key.toLowerCase();
+        if ((event.ctrlKey || event.metaKey) && (key === 'v' || key === 'c') &&
+            !isInsideTeacherModal(event.target)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+
     dom.loginBtn.addEventListener('click', handleLogin);
     dom.logoutBtn.addEventListener('click', handleLogout);
     dom.openTeacherBtn.addEventListener('click', async () => {
@@ -1649,6 +1693,25 @@ function setupEventListeners() {
             setTimeout(() => keyEl.classList.remove('pressed'), 100);
         }
 
+        const isEditableTarget = e.target instanceof HTMLElement &&
+            e.target !== dom.hiddenInput &&
+            (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName));
+        const isCopyShortcut = (e.ctrlKey || e.metaKey) &&
+            ['c', 'v', 'x'].includes(e.key.toLowerCase());
+        const isClipboardInsertShortcut =
+            (e.ctrlKey && e.key === 'Insert') ||
+            (e.shiftKey && e.key === 'Insert');
+        const gameModalIsOpen = !dom.articleModal.classList.contains('hidden') ||
+            !dom.resultModal.classList.contains('hidden') ||
+            !dom.loginModal.classList.contains('hidden') ||
+            !dom.teacherModal.classList.contains('hidden');
+
+        if (!isEditableTarget && !gameModalIsOpen && state.student.name &&
+            (isCopyShortcut || isClipboardInsertShortcut)) {
+            e.preventDefault();
+            return;
+        }
+
         if (!dom.articleModal.classList.contains('hidden') ||
             !dom.resultModal.classList.contains('hidden') ||
             !dom.loginModal.classList.contains('hidden') ||
@@ -1697,13 +1760,14 @@ function setupEventListeners() {
     dom.hiddenInput.addEventListener('input', (e) => {
         if (dom.hiddenInput.dataset.blocked === 'true') return;
 
+        if (e.inputType === 'insertFromPaste') {
+            dom.hiddenInput.value = '';
+            return;
+        }
+
         if (e.data) {
             for (const ch of e.data) {
                 if (ch) handleInput(ch);
-            }
-        } else if (e.inputType === 'insertFromPaste' && dom.hiddenInput.value) {
-            for (const ch of dom.hiddenInput.value) {
-                handleInput(ch);
             }
         }
         dom.hiddenInput.value = '';
@@ -1711,6 +1775,19 @@ function setupEventListeners() {
         if (state.userInput.length >= state.targetText.length && state.gameActive) {
             endGame();
         }
+    });
+
+    dom.hiddenInput.addEventListener('paste', (e) => {
+        e.preventDefault();
+        dom.hiddenInput.value = '';
+    });
+
+    dom.textDisplay.addEventListener('copy', (e) => {
+        e.preventDefault();
+    });
+
+    dom.textDisplay.addEventListener('cut', (e) => {
+        e.preventDefault();
     });
 
     dom.restartBtn.addEventListener('click', () => {
