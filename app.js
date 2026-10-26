@@ -181,7 +181,7 @@ async function fetchCloudArticles() {
         const response = await fetch(`${configObj.SCRIPT_URL}?action=getArticles`);
         if (!response.ok) throw new Error('雲端預設文章回應異常');
         const data = await response.json();
-        if (!data || typeof data.articles !== 'object' || Array.isArray(data.articles)) {
+        if (!data || !data.articles || typeof data.articles !== 'object' || Array.isArray(data.articles)) {
             throw new Error('雲端預設文章格式不正確');
         }
         cloudArticles = data.articles;
@@ -343,9 +343,13 @@ function parseStudentIdentity(studentData, account) {
 function getStudentClassGroup(student) {
     const grade = String(student.grade || '').trim().toUpperCase();
     const className = String(student.className || '').trim().toUpperCase();
-    if (grade && className && grade !== 'TEACHER') return `${grade}${className}`;
+    if (grade && className && grade !== 'TEACHER') {
+        return className.startsWith(grade) ? className : `${grade}${className}`;
+    }
 
     const classId = String(student.id || student.classId || '').trim().toUpperCase();
+    const classMatch = classId.match(/^(?:P)?([1-6])([A-Z])(?:\d*)$/);
+    if (classMatch) return `P${classMatch[1]}${classMatch[2]}`;
     const match = classId.match(/^(.+?[A-Z])(?:\d+)?$/);
     return match && match[1] !== 'TEACHER' ? match[1] : '';
 }
@@ -1022,8 +1026,9 @@ function initializeTeacherClassOptions() {
         options.set(`P${grade}`, `P${grade} 年級`);
     }
     dynamicStudentList.forEach(student => {
-        const group = getStudentClassGroup(parseStudentIdentity(student, student.account));
-        if (group) options.set(group, group);
+        const identity = parseStudentIdentity(student, student.account);
+        const group = getStudentClassGroup(identity);
+        if (!identity.isTeacher && /^P[1-6][A-Z]$/.test(group)) options.set(group, group);
     });
     dom.exportClassSelect.innerHTML = Array.from(options, ([value, label]) =>
         `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`
@@ -1109,7 +1114,7 @@ function getBestScoreRows(filteredRecords, selectedClass) {
 
     const roster = dynamicStudentList
         .map(student => ({ student, identity: parseStudentIdentity(student, student.account) }))
-        .filter(item => !item.identity.isTeacher)
+        .filter(item => !item.identity.isTeacher && item.identity.id.toUpperCase() !== 'DEMO')
         .filter(item => selectedClass === 'ALL' ||
             (/^P[1-6]$/.test(selectedClass)
                 ? item.identity.grade === selectedClass
