@@ -68,6 +68,8 @@ const dom = {
     targetGroupSelect: document.getElementById('targetGroupSelect'),
     customTargetGroupWrap: document.getElementById('customTargetGroupWrap'),
     customTargetGroup: document.getElementById('customTargetGroup'),
+    articleTargetPreview: document.getElementById('articleTargetPreview'),
+    deleteArticleBtn: document.getElementById('deleteArticleBtn'),
     teacherArticleTitle: document.getElementById('teacherArticleTitle'),
     teacherArticleFile: document.getElementById('teacherArticleFile'),
     teacherArticleContent: document.getElementById('teacherArticleContent'),
@@ -1274,13 +1276,70 @@ async function saveTeacherArticle() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        cloudArticles[targetGroup] = { title, content };
+        cloudArticles[targetGroup] = { title, content, updatedAt: new Date().toLocaleString() };
+        updateArticleTargetPreview();
         alert('✅ 已成功派發預設文章！');
     } catch (error) {
         console.error('預設文章派發失敗:', error);
         alert(`❌ 派發失敗：${error.message}`);
     } finally {
         dom.saveTeacherArticleBtn.disabled = false;
+    }
+}
+
+function getSelectedArticleTarget() {
+    return dom.targetGroupSelect.value === 'CUSTOM'
+        ? dom.customTargetGroup.value.trim().toUpperCase()
+        : dom.targetGroupSelect.value;
+}
+
+function updateArticleTargetPreview() {
+    const targetGroup = getSelectedArticleTarget();
+    const article = targetGroup ? cloudArticles[targetGroup] : null;
+    if (!article) {
+        dom.articleTargetPreview.textContent = '（目前該對象無雲端預設文章）';
+        dom.deleteArticleBtn.disabled = true;
+        return;
+    }
+
+    const title = typeof article === 'string' ? '' : String(article.title || '未命名文章');
+    const updatedAt = typeof article === 'object'
+        ? (article.updatedAt || article.updated_at || article.lastUpdated || article.last_updated || article.timestamp || article.updated || '')
+        : '';
+    dom.articleTargetPreview.textContent = `目前文章：${title || '未命名文章'}${updatedAt ? `｜最後更新：${updatedAt}` : ''}`;
+    dom.deleteArticleBtn.disabled = false;
+}
+
+async function deleteTeacherArticle() {
+    if (state.student.isTeacher !== true) return;
+    const targetGroup = getSelectedArticleTarget();
+    if (!targetGroup) {
+        alert('請輸入有效的班級代碼。');
+        return;
+    }
+    if (!confirm('確定要刪除該對象的預設文章嗎？')) return;
+
+    const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
+    dom.deleteArticleBtn.disabled = true;
+    try {
+        await fetch(configObj.SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'deleteArticle',
+                targetGroup
+            })
+        });
+        delete cloudArticles[targetGroup];
+        updateArticleTargetPreview();
+        dom.teacherArticleTitle.value = '';
+        dom.teacherArticleContent.value = '';
+        alert('🗑️ 已成功刪除該對象的預設文章！');
+    } catch (error) {
+        console.error('預設文章刪除失敗:', error);
+        alert(`❌ 刪除失敗：${error.message}`);
+        updateArticleTargetPreview();
     }
 }
 
@@ -1318,7 +1377,9 @@ function setupEventListeners() {
     });
     dom.targetGroupSelect.addEventListener('change', () => {
         dom.customTargetGroupWrap.classList.toggle('hidden', dom.targetGroupSelect.value !== 'CUSTOM');
+        updateArticleTargetPreview();
     });
+    dom.customTargetGroup.addEventListener('input', updateArticleTargetPreview);
     dom.teacherArticleFile.addEventListener('change', () => {
         const file = dom.teacherArticleFile.files[0];
         if (!file) return;
@@ -1348,6 +1409,7 @@ function setupEventListeners() {
         dom.teacherArticleFile.value = '';
     });
     dom.saveTeacherArticleBtn.addEventListener('click', saveTeacherArticle);
+    dom.deleteArticleBtn.addEventListener('click', deleteTeacherArticle);
     dom.exportRuleSelect.addEventListener('change', () => {
         const isDateRule = dom.exportRuleSelect.value === 'date';
         dom.exportDateWrap.classList.toggle('hidden', !isDateRule);
@@ -1510,6 +1572,7 @@ async function init() {
         await Promise.all([fetchLatestStudentList(), fetchCloudArticles()]);
         initializeTeacherClassOptions();
         dom.exportDateInput.value = getTodayDateKey();
+        updateArticleTargetPreview();
 
         // 2. 初始化遊戲狀態
         initGame();
