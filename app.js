@@ -153,9 +153,9 @@ function parseCSV(csvText) {
 
         let grade = '';
         let className = '';
-        const match = classId.match(/^(P\d+)([A-Z]?)$/i);
+        const match = classId.match(/^P?([1-6])([A-Z]?)$/i);
         if (match) {
-            grade = match[1].toUpperCase();
+            grade = `P${match[1]}`;
             className = match[2].toUpperCase();
         } else if (classId.toUpperCase() === 'TEACHER') {
             grade = 'TEACHER';
@@ -238,17 +238,17 @@ function fallbackToDefaultStudents() {
 async function fetchCloudArticles() {
     const configObj = (typeof window !== 'undefined' && window.CONFIG) ? window.CONFIG : CONFIG;
     try {
-        const response = await fetch(`${configObj.SCRIPT_URL}?action=getArticles`);
+        const url = `${configObj.SCRIPT_URL}?action=getArticles&_t=${Date.now()}`;
+        const response = await fetch(url, { redirect: 'follow' });
         if (!response.ok) throw new Error('雲端預設文章回應異常');
         const data = await response.json();
-        if (!data || !data.articles || typeof data.articles !== 'object' || Array.isArray(data.articles)) {
-            throw new Error('雲端預設文章格式不正確');
+        if (data && data.articles && typeof data.articles === 'object' && !Array.isArray(data.articles)) {
+            cloudArticles = data.articles;
+            return true;
         }
-        cloudArticles = data.articles;
-        return true;
+        throw new Error('雲端預設文章格式不正確');
     } catch (error) {
-        console.warn('雲端預設文章載入失敗，將使用預設文章:', error);
-        cloudArticles = {};
+        console.warn('雲端預設文章載入失敗:', error);
         return false;
     }
 }
@@ -370,7 +370,10 @@ const ConfettiSystem = {
 function parseStudentIdentity(studentData, account) {
     const classId = studentData.classId || studentData.id || '';
     const normalized = String(classId).trim().toUpperCase();
-    const match = normalized.match(/^([A-Z0-9]+?)([A-Z])([0-9]*)$/);
+    const classCodeMatch = normalized.match(/^(P?[1-6][A-Z])\d+$/i);
+    const classCode = classCodeMatch ? classCodeMatch[1] : normalized;
+    const match = classCode.match(/^P?([1-6])([A-Z]?)$/i);
+    const numberMatch = normalized.match(/^P?[1-6][A-Z](\d+)$/i);
     const isTeacher = [classId, studentData.grade].some(value => String(value || '').trim().toUpperCase() === 'TEACHER');
 
     const explicitNumber = [
@@ -384,19 +387,26 @@ function parseStudentIdentity(studentData, account) {
 
     const parsedNumber = explicitNumber !== undefined
         ? String(explicitNumber).trim()
-        : (match && match[3] ? match[3] : '');
+        : (numberMatch ? numberMatch[1] : '');
 
     // 抓取官方學號（student_id）
     const studentIdVal = studentData.student_id || studentData.studentId || classId || account;
-    const rawGrade = String(studentData.grade || (match ? match[1] : '') || '').toUpperCase();
+    const rawGrade = String(studentData.grade || '').trim().toUpperCase();
+    const gradeMatch = rawGrade.match(/^P?([1-6])([A-Z]?)$/i);
+    const parsedGrade = match
+        ? `P${match[1]}`
+        : (gradeMatch ? `P${gradeMatch[1]}` : (/^[1-6]$/.test(rawGrade) ? `P${rawGrade}` : rawGrade));
+    const parsedClassName = match && match[2]
+        ? match[2].toUpperCase()
+        : (gradeMatch && gradeMatch[2] ? gradeMatch[2].toUpperCase() : String(studentData.className || '').toUpperCase());
 
     return {
         name: studentData.name || '',
         id: classId,
         studentId: String(studentIdVal).trim(), // 保存官方學號
         account: account || '',
-        grade: /^\d+$/.test(rawGrade) ? `P${rawGrade}` : rawGrade,
-        className: String(studentData.className || (match ? match[2] : '') || '').toUpperCase(),
+        grade: parsedGrade,
+        className: parsedClassName,
         number: parsedNumber,
         isTeacher
     };
@@ -423,7 +433,7 @@ function formatStudentInfoLabel(student) {
     return classPart ? `${classPart} ${student.name}`.trim() : student.name;
 }
 
-function handleLogin() {
+async function handleLogin() {
     const inputAccount = dom.loginAccount.value.replace(/\s+/g, '').toLowerCase();
     const inputPassword = dom.loginPassword.value.replace(/\s+/g, '');
 
@@ -448,10 +458,14 @@ function handleLogin() {
         return;
     }
 
-    loginSuccess(foundStudent.account, foundStudent);
+    await loginSuccess(foundStudent.account, foundStudent);
 }
 
-function loginSuccess(account, studentData) {
+async function loginSuccess(account, studentData) {
+    if (Object.keys(cloudArticles).length === 0) {
+        await fetchCloudArticles();
+    }
+
     state.student = parseStudentIdentity(studentData, account);
 
     dom.loginError.classList.remove('show');
@@ -517,7 +531,9 @@ function handleLogout() {
 // ============================================
 function getCombinedArticles() {
     const classGroup = getStudentClassGroup(state.student).toUpperCase();
-    const grade = String(state.student.grade || '').trim().toUpperCase();
+    const rawGrade = String(state.student.grade || '').trim().toUpperCase();
+    const gradeMatch = rawGrade.match(/^P?([1-6])(?:[A-Z])?$/i);
+    const grade = gradeMatch ? `P${gradeMatch[1]}` : rawGrade;
     const studentId = String(state.student.id || '').trim().toUpperCase();
     const cloud = Object.entries(cloudArticles).map(([targetGroup, value]) => {
         const group = String(targetGroup).trim().toUpperCase();
@@ -557,7 +573,7 @@ function renderArticleModal() {
     }).join('');
 }
 
-function openArticleModal() {
+async function openArticleModal() {
     if (!state.student.name) {
         dom.loginModal.classList.remove('hidden');
         dom.loginAccount.focus();
@@ -565,6 +581,10 @@ function openArticleModal() {
     }
     renderArticleModal();
     dom.articleModal.classList.remove('hidden');
+    await fetchCloudArticles();
+    if (!dom.articleModal.classList.contains('hidden')) {
+        renderArticleModal();
+    }
 }
 
 function selectArticle(articleId) {
