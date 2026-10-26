@@ -14,6 +14,7 @@ const state = {
     bestStreak: 0,
     startTime: null,
     pausedTime: 0,
+    lastInputTime: 0,
     student: {
         name: '',
         id: '',           // 班級座號識別碼 (如 P2A01)
