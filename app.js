@@ -3,6 +3,7 @@
 // ============================================
 const state = {
     targetText: CONFIG.DEFAULT_TEXT,
+    currentArticleTitle: '',
     userInput: '',
     timerInterval: null,
     gameActive: false,
@@ -494,6 +495,7 @@ async function loginSuccess(account, studentData) {
         cloudArticles.ALL;
     const articleContent = typeof article === 'string' ? article : article && article.content;
     state.targetText = articleContent || CONFIG.DEFAULT_ARTICLE;
+    state.currentArticleTitle = typeof article === 'object' && article ? (article.title || '雲端預設文章') : '預設文章';
     state.userInput = '';
     renderText();
     updateHint();
@@ -524,6 +526,7 @@ function handleLogout() {
     dom.pauseBtn.classList.add('hidden');
     
     state.targetText = CONFIG.DEFAULT_TEXT;
+    state.currentArticleTitle = '';
     initGame();
 }
 
@@ -595,6 +598,9 @@ function selectArticle(articleId) {
         const cloudArticle = cloudArticles[targetGroup];
         if (cloudArticle) {
             article = {
+                title: typeof cloudArticle === 'object' && cloudArticle
+                    ? String(cloudArticle.title || `雲端文章 ${String(targetGroup).trim().toUpperCase()}`)
+                    : `雲端文章 ${String(targetGroup).trim().toUpperCase()}`,
                 content: typeof cloudArticle === 'string' ? cloudArticle : cloudArticle.content
             };
         }
@@ -604,6 +610,7 @@ function selectArticle(articleId) {
     if (!article || !article.content) return;
 
     state.targetText = article.content;
+    state.currentArticleTitle = article.title || '自選文章';
     state.userInput = '';
     state.gameActive = false;
     state.isPaused = false;
@@ -1094,6 +1101,7 @@ async function uploadResults(results) {
         name: state.student.name || '',
         grade: state.student.grade || '',
         className: state.student.className || '',
+        articleTitle: state.currentArticleTitle || '未命名文章',
         number: state.student.number || '',
         accuracy: results.accuracy,
         speed: results.speed,
@@ -1203,6 +1211,7 @@ function normalizeScoreRecord(record) {
         account: account || (student && String(student.account || '')) || '',
         name: String(getRecordField(record, ['name', 'studentName', '姓名']) || (student && student.name) || ''),
         className: classGroup || rawClass,
+        articleTitle: String(record.articleTitle || record.articletitle || '未記錄'),
         grade: gradeMatch ? gradeMatch[1] : rawGrade,
         score: getRecordField(record, ['score', 'totalScore', '總分']),
         speed: getRecordField(record, ['speed', '速度']),
@@ -1263,6 +1272,7 @@ function getBestScoreRows(filteredRecords, selectedClass) {
             account: identity.account,
             name: identity.name,
             className: getStudentClassGroup(identity),
+            articleTitle: '未記錄',
             grade: identity.grade,
             score: 0,
             speed: 0,
@@ -1301,7 +1311,7 @@ function applyScoreFilters() {
 
 function renderScorePreview() {
     if (scorePreviewRows.length === 0) {
-        dom.scorePreviewBody.innerHTML = '<tr><td colspan="9" class="score-empty">沒有符合條件的成績</td></tr>';
+        dom.scorePreviewBody.innerHTML = '<tr><td colspan="10" class="score-empty">沒有符合條件的成績</td></tr>';
         return;
     }
     dom.scorePreviewBody.innerHTML = scorePreviewRows.map(row => `
@@ -1311,6 +1321,7 @@ function renderScorePreview() {
             <td>${escapeHtml(row.account)}</td>
             <td>${escapeHtml(row.name)}</td>
             <td>${escapeHtml(row.className)}</td>
+            <td>${escapeHtml(row.articleTitle)}</td>
             <td>${escapeHtml(row.score)}</td>
             <td>${escapeHtml(row.speed)}</td>
             <td>${escapeHtml(row.accuracy)}</td>
@@ -1342,8 +1353,8 @@ async function loadCloudScores() {
 
 function exportScoreCsv() {
     if (scorePreviewRows.length === 0) return;
-    const headers = ['測驗時間', '學號', '帳號', '姓名', '班級', '總分', '速度', '準確度', '錯字數'];
-    const fields = ['timestamp', 'studentId', 'account', 'name', 'className', 'score', 'speed', 'accuracy', 'errors'];
+    const headers = ['測驗時間', '學號', '帳號', '姓名', '班級', '文章標題', '總分', '速度', '準確度', '錯字數'];
+    const fields = ['timestamp', 'studentId', 'account', 'name', 'className', 'articleTitle', 'score', 'speed', 'accuracy', 'errors'];
     const csvValue = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csv = [headers, ...scorePreviewRows.map(row => fields.map(field => row[field]))]
         .map(row => row.map(csvValue).join(','))
@@ -1919,7 +1930,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (typeof selectArticle === 'function') {
                     selectArticle(customId);
                 } else {
-                    if (typeof state !== 'undefined') state.targetText = textContent;
+                    if (typeof state !== 'undefined') {
+                        state.targetText = textContent;
+                        state.currentArticleTitle = articleTitle || '自選文章';
+                    }
                     if (typeof renderText === 'function') renderText();
                     if (typeof updateHint === 'function') updateHint();
                 }
